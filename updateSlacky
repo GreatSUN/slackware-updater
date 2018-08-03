@@ -7,7 +7,7 @@ if [ ! -z $1 ]; then
                 downloadType="current"
         elif [ "$1" == "help" ] || [ "$1" == "-help" ] || [ "$1" == "--help" ]; then
                 echo ""
-                echo "Usage: $0 [option]"
+                echo "Usage: $0 [options]"
                 echo ""
                 echo ""
                 echo "Options:"
