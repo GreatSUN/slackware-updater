@@ -1,0 +1,112 @@
+#!/bin/bash
+downloadType="version"
+if [ ! -z $1 ]; then
+        if [ "$1" == "includeCurrent" ] || [ "$1" == "-includeCurrent" ] || [ "$1" == "--includeCurrent" ]; then
+                downloadType="all"
+        elif [ "$1" == "current" ] || [ "$1" == "-current" ] || [ "$1" == "--current" ]; then
+                downloadType="current"
+        elif [ "$1" == "help" ] || [ "$1" == "-help" ] || [ "$1" == "--help" ]; then
+                echo ""
+                echo "Usage: $0 [option]"
+                echo ""
+                echo ""
+                echo "Options:"
+                echo ""
+                echo "  includeCurrent:"
+                echo " -includeCurrent:"
+                echo "--includeCurrent:"
+                echo "                  Download from fastest mirror (don't care about version or current)"
+                echo ""
+                echo "  current:"
+                echo " -current:"
+                echo "--current:"
+                echo "                  Download from fastest current mirror only"
+                echo ""
+                echo "  help:"
+                echo " -help:"
+                echo "--help:"
+                echo "                  This usage information"
+                echo ""
+                echo "Default download type (if no option given) is version only!"
+                echo ""
+                exit 0
+        fi
+fi
+
+if [ ! -f /etc/slackpkg/mirrorList ]; then
+        if [ -f /etc/slackpkg/mirrors ]; then
+                echo "moving orginal mirror file to working file path"
+                mv /etc/slackpkg/mirrors /etc/slackpkg/mirrorList
+        else
+                echo "no source mirror file and no working file path does exist!"
+                echo "FATAL ERROR!"
+                exit 1
+        fi
+fi
+
+updateMirrorList=`cat /etc/slackpkg/mirrorList|grep -v "#"|grep -Po "http://.*"|sed 's/ /\n/g'`
+if [ "$downloadType" == "version" ]; then
+        echo "filtering for version mirrors only"
+        updateMirrorList=`echo "${updateMirrorList}"|grep -v current`
+elif [ "$downloadType" == "current" ]; then
+        echo "filtering for current mirrors only"
+        updateMirrorList=`echo "${updateMirrorList}"|grep current`
+fi
+
+if [[ "$updateMirrorList" == "" ]]; then
+        echo "no mirrors found."
+        echo "FATAL ERROR!"
+        exit 1
+fi
+
+echo "checking following mirrors:"
+echo "$updateMirrorList"
+echo ""
+echo "--------------------------------------------------------------------------------------"
+fastestMirror=""
+let fastestTime=5000
+for updateMirror in $updateMirrorList; do
+        checkStatus=`curl -sSL -D - ${updateMirror}FILELIST.TXT -o /dev/null 2>&1|awk '/HTTP/ {print $2}'`
+        if [[ "$checkStatus" == "200" ]]; then
+                checkTime=`curl -kso /dev/null -w '%{time_total}\n' ${updateMirror}FILELIST.TXT 2>&1`
+                let checkTime=`printf '%.0f\n' ${checkTime}e3`
+                echo "${updateMirror} -> ${checkTime}ms"
+                if [[ $checkTime -lt $fastestTime ]]; then
+                        fastestTime=$checkTime
+                        fastestMirror=$updateMirror
+                fi
+        else
+                echo "failed mirror: $updateMirror"
+        fi
+done
+rm -f /tmp/test
+echo "--------------------------------------------------------------------------------------"
+echo ""
+echo "fastest mirror: ${fastestMirror}"
+echo "download time: ${fastestTime}ms"
+echo $fastestMirror > /etc/slackpkg/mirrors
+echo ""
+echo "checking for updates..."
+echo ""
+updateCheckRes=`echo "Y" | slackpkg check-updates 2>&1 |grep -oP "\w+.*"|awk '/No updated packages/ {print("1")}'`
+if [[ "$updateCheckRes" == "1" ]]; then
+        echo "no updates found/needed."
+        echo "exiting..."
+        exit 0
+fi
+echo "starting interactive slackpkg update"
+echo ""
+slackpkg update
+if [[ $? -eq 0 ]]; then
+        echo ""
+        echo "*************************************************************************************"
+        echo "update successfully done."
+        echo ""
+else
+        echo ""
+        echo "*************************************************************************************"
+        echo ""
+        echo "FAILURE while updating your slackware OS packages"
+        echo ""
+        exit 1
+fi
